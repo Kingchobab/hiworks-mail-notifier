@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hiworks Mail Notifier (Alpha)
 // @namespace    https://github.com/Kingchobab/hiworks-mail-notifier
-// @version      0.2.3
+// @version      0.2.4
 // @description  Notify only newly arrived Hiworks mails and open them directly on click.
 // @author       Kingchobab
 // @match        https://mails.office.hiworks.com/*
