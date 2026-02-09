@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hiworks Mail Notifier (Alpha)
 // @namespace    https://github.com/Kingchobab/hiworks-mail-notifier
-// @version      0.2.4
+// @version      0.3.0
 // @description  Notify only newly arrived Hiworks mails and open them directly on click.
 // @author       Kingchobab
 // @match        https://mails.office.hiworks.com/*
@@ -38,6 +38,10 @@
      ********************/
     const K_SEEN = 'hiworks_seen_nos_v1';
     const K_LAST_UNREAD = 'hiworks_last_all_unread_v1';
+
+    const K_NOTIFY_LEADER = 'hiworks_notify_leader_v1';
+    const LEADER_TTL_MS = 15000; // 15초
+
   
     /** @type {number[]} */
     let seenNos = GM_getValue(K_SEEN, []);
@@ -85,6 +89,9 @@
     }
   
       function notify(title, text, onClick) {
+        if (!tryBecomeLeader()) {
+          return;
+        }
         // 1) Web Notification
         if ('Notification' in window) {
           const show = () => {
@@ -120,7 +127,6 @@
           document.title = `🔴 ${title}`;
         }
       }
-  
   
     function safeText(s, max = 80) {
       const t = String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -223,7 +229,6 @@
           const body = buildSummary(newItems);
           const firstNo = newItems[0].no;
           notify(title, body, () => openMailFromNotification(firstNo));
-  
         }
       } catch (e) {
         // ignore silently
@@ -265,6 +270,32 @@
     function openMailFromNotification(mailNo) {
       const url = `https://mails.office.hiworks.com/view/personal/${encodeURIComponent(mailNo)}`;
       window.open(url, '_blank', 'noopener,noreferrer');
+    }
+
+    function getTabId() {
+      return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+    
+    const TAB_ID = getTabId();
+    
+    function tryBecomeLeader() {
+      const now = Date.now();
+      const cur = GM_getValue(K_NOTIFY_LEADER, null);
+    
+      if (!cur || now - cur.ts > LEADER_TTL_MS) {
+        // 비어있거나 만료 → 내가 리더
+        GM_setValue(K_NOTIFY_LEADER, { tabId: TAB_ID, ts: now });
+        return true;
+      }
+    
+      // 이미 내가 리더면 갱신
+      if (cur.tabId === TAB_ID) {
+        GM_setValue(K_NOTIFY_LEADER, { tabId: TAB_ID, ts: now });
+        return true;
+      }
+    
+      // 다른 탭이 리더
+      return false;
     }
   
     /********************
@@ -344,6 +375,11 @@
   
     // insurance timer
     setInterval(pollStatusOnceIfNeeded, FALLBACK_TICK_MS);
+
+    // 하트비트 갱신
+    setInterval(() => {
+      tryBecomeLeader();
+    }, LEADER_TTL_MS / 2);
   
     // optional: a small startup ping
     notify('Hiworks 알림 감시 시작', '새 메일(안읽음)만 요약 알림으로 알려요.');

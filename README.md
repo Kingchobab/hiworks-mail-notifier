@@ -27,15 +27,21 @@ Hiworks 웹메일에서 **새 메일이 도착했을 때만**
 
 ## 사용 환경
 
-- Tampermonkey (Chrome / Edge / Firefox)
+- Tampermonkey
+  * 테스트는 Mac/Chrome 환경에서만 진행함.
 - Hiworks Web Mail  
   `https://mails.office.hiworks.com/*`
+
 
 ---
 
 ## 설치 방법
 
-1. Tampermonkey 설치 및 기본 설정(작동하게 하려면 설정을 좀 많이 바꿔야되는데 여기서 설명하긴 귀찮)
+1. Tampermonkey 설치 및 기본 설정
+  1. 확장 프로그램 관리 > 개발자 모드
+  2. 확장 프로그램 설정  > Tampermonkey > 사용자 스크립트 허용
+  3. Hiworks(mails.office.hiworks.com) 사이트 권한 > 알림 허용
+  4. Mac 설정 > 알림 > Chrome 허용
 2. 아래 URL을 열어 스크립트 설치  
    (배포용 raw URL 기입)
 
@@ -51,3 +57,5 @@ Hiworks 웹메일에서 **새 메일이 도착했을 때만**
 ## 로드맵
 
 - 이미 열린 탭에서 신규 메일 감지 중인데 새 탭이 열리면 이중으로 감시하는 문제 해결
+- 초기 시작 알림 10초 뒤 사라지도록
+
