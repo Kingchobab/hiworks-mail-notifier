@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hiworks Mail Notifier (Alpha)
 // @namespace    https://github.com/Kingchobab/hiworks-mail-notifier
-// @version      0.3.0
+// @version      0.3.1
 // @description  Notify only newly arrived Hiworks mails and open them directly on click.
 // @author       Kingchobab
 // @match        https://mails.office.hiworks.com/*
@@ -88,45 +88,43 @@
       return seenNos.includes(no);
     }
   
-      function notify(title, text, onClick) {
-        if (!tryBecomeLeader()) {
+    function notify(title, text, onClick) {
+      if (!tryBecomeLeader()) return;
+      // 1) Web Notification
+      if ('Notification' in window) {
+        const show = () => {
+          const n = new Notification(title, {
+            body: text,
+            requireInteraction: true,
+            silent: false,
+          });
+          if (typeof onClick === 'function') {
+            n.onclick = () => {
+              try { onClick(); } finally { n.close(); }
+            };
+          }
+        };
+
+        if (Notification.permission === 'granted') { show(); return; }
+        if (Notification.permission !== 'denied') {
+          Notification.requestPermission().then((p) => { if (p === 'granted') show(); });
           return;
         }
-        // 1) Web Notification
-        if ('Notification' in window) {
-          const show = () => {
-            const n = new Notification(title, {
-              body: text,
-              requireInteraction: true,
-              silent: false,
-            });
-            if (typeof onClick === 'function') {
-              n.onclick = () => {
-                try { onClick(); } finally { n.close(); }
-              };
-            }
-          };
-  
-          if (Notification.permission === 'granted') { show(); return; }
-          if (Notification.permission !== 'denied') {
-            Notification.requestPermission().then((p) => { if (p === 'granted') show(); });
-            return;
-          }
-        }
-  
-        // 2) GM_notification fallback
-        try {
-          GM_notification({
-            title,
-            text,
-            timeout: 0,
-            silent: false,
-            onclick: () => { if (typeof onClick === 'function') onClick(); },
-          });
-        } catch (_) {
-          document.title = `🔴 ${title}`;
-        }
       }
+
+      // 2) GM_notification fallback
+      try {
+        GM_notification({
+          title,
+          text,
+          timeout: 0,
+          silent: false,
+          onclick: () => { if (typeof onClick === 'function') onClick(); },
+        });
+      } catch (_) {
+        document.title = `🔴 ${title}`;
+      }
+    }
   
     function safeText(s, max = 80) {
       const t = String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -213,6 +211,7 @@
     }
   
     async function handleNewMailFlow() {
+      if (!tryBecomeLeader()) return;
       if (fetching) return;
       fetching = true;
       try {
