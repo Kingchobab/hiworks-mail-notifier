@@ -44,7 +44,7 @@ Hiworks 웹메일에서 **새 메일이 도착했을 때만**
     3. Hiworks(mails.office.hiworks.com) 사이트 권한 > 알림 허용
     4. Mac 설정 > 알림 > Chrome 허용
 2. 아래 URL을 열어 스크립트 설치  
-   (배포용 raw URL 기입)
+   [https://raw.githubusercontent.com/Kingchobab/hiworks-mail-notifier/master/hiworks-mail-notifier.user.js](https://raw.githubusercontent.com/Kingchobab/hiworks-mail-notifier/master/hiworks-mail-notifier.user.js)
 
 ---
 
