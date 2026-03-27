@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hiworks Mail Notifier (Alpha)
 // @namespace    https://github.com/Kingchobab/hiworks-mail-notifier
-// @version      0.3.1
+// @version      0.3.2
 // @description  Notify only newly arrived Hiworks mails and open them directly on click.
 // @author       Kingchobab
 // @match        https://mails.office.hiworks.com/*
@@ -27,7 +27,6 @@
     const FALLBACK_TICK_MS = 30 * 1000;          // check every 30s
     const MAX_SEEN = 800;                        // keep last 800 mail nos
     const LIST_LIMIT = 30;                       // fetch latest 30
-    const SUMMARY_MAX = 5;                       // show up to 5 lines
   
     // API endpoints (same-site, cookie auth)
     const STATUS_URL = 'https://count-api.office.hiworks.com/mbox/status?with=managed';
@@ -158,14 +157,6 @@
       return items;
     }
   
-    function buildSummary(newItems) {
-      const top = newItems.slice(0, SUMMARY_MAX);
-      const lines = top.map(m => `${m.subject || '(제목 없음)'} — ${m.from || '(보낸사람 없음)'}`);
-      const extra = newItems.length - top.length;
-      if (extra > 0) lines.push(`…외 ${extra}건`);
-      return lines.join('\n');
-    }
-  
     function fetchJson(url) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
@@ -223,11 +214,12 @@
         if (newItems.length > 0) {
           // Mark seen first to avoid duplicate notify if something fires twice
           markSeen(newItems.map(m => m.no));
-  
-          const title = `📧 Hiworks 새 메일 ${newItems.length}건`;
-          const body = buildSummary(newItems);
-          const firstNo = newItems[0].no;
-          notify(title, body, () => openMailFromNotification(firstNo));
+
+          for (const mail of newItems) {
+            const title = `📧 ${mail.subject || '(제목 없음)'}`;
+            const body = `보낸사람: ${mail.from || '(보낸사람 없음)'}`;
+            notify(title, body, () => openMailFromNotification(mail.no));
+          }
         }
       } catch (e) {
         // ignore silently
@@ -381,5 +373,5 @@
     }, LEADER_TTL_MS / 2);
   
     // optional: a small startup ping
-    notify('Hiworks 알림 감시 시작', '새 메일(안읽음)만 요약 알림으로 알려요.');
+    notify('Hiworks 알림 감시 시작', '새 메일(안읽음)을 메일별 개별 알림으로 알려요.');
   })();
