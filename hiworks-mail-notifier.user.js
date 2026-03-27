@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Hiworks Mail Notifier (Alpha)
 // @namespace    https://github.com/Kingchobab/hiworks-mail-notifier
-// @version      0.3.2
+// @version      0.4.0
 // @description  Notify only newly arrived Hiworks mails and open them directly on click.
 // @author       Kingchobab
 // @match        https://mails.office.hiworks.com/*
+// @match        https://login.office.hiworks.com/*
 // @updateURL    https://raw.githubusercontent.com/Kingchobab/hiworks-mail-notifier/master/hiworks-mail-notifier.user.js
 // @downloadURL  https://raw.githubusercontent.com/Kingchobab/hiworks-mail-notifier/master/hiworks-mail-notifier.user.js
 // @grant        GM_notification
@@ -12,6 +13,7 @@
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @connect      count-api.office.hiworks.com
+// @connect      login.office.hiworks.com
 // @connect      mail-api.office.hiworks.com
 // ==/UserScript==
 
@@ -23,6 +25,7 @@
      ********************/
     const STATUS_API_MATCH = '/mbox/status';
     const MAILS_API_MATCH  = '/v2/mails';
+    const LOGIN_HOST = 'login.office.hiworks.com';
     const FALLBACK_NO_STATUS_MS = 3 * 60 * 1000; // 3 minutes
     const FALLBACK_TICK_MS = 30 * 1000;          // check every 30s
     const MAX_SEEN = 800;                        // keep last 800 mail nos
@@ -37,9 +40,11 @@
      ********************/
     const K_SEEN = 'hiworks_seen_nos_v1';
     const K_LAST_UNREAD = 'hiworks_last_all_unread_v1';
-
     const K_NOTIFY_LEADER = 'hiworks_notify_leader_v1';
+    const K_LOGIN_REQUIRED_ACTIVE = 'hiworks_login_required_active_v1';
     const LEADER_TTL_MS = 15000; // 15초
+
+    const IS_LOGIN_HOST = window.location.hostname === LOGIN_HOST;
 
   
     /** @type {number[]} */
@@ -87,8 +92,7 @@
       return seenNos.includes(no);
     }
   
-    function notify(title, text, onClick) {
-      if (!tryBecomeLeader()) return;
+    function showNotification(title, text, onClick) {
       // 1) Web Notification
       if ('Notification' in window) {
         const show = () => {
@@ -124,11 +128,98 @@
         document.title = `🔴 ${title}`;
       }
     }
+
+    function notify(title, text, onClick) {
+      if (!tryBecomeLeader()) return false;
+      showNotification(title, text, onClick);
+      return true;
+    }
   
     function safeText(s, max = 80) {
       const t = String(s ?? '').replace(/\s+/g, ' ').trim();
       if (t.length <= max) return t;
       return t.slice(0, max - 1) + '…';
+    }
+
+    function createTaggedError(kind, message) {
+      const error = new Error(message);
+      error.kind = kind;
+      return error;
+    }
+
+    function isAuthError(error) {
+      return error?.kind === 'auth';
+    }
+
+    function hasDataArray(json) {
+      return Array.isArray(json?.data);
+    }
+
+    function looksLikeLoginUrl(url) {
+      return String(url ?? '').includes(LOGIN_HOST);
+    }
+
+    function looksLikeHtml(text) {
+      const t = String(text ?? '').toLowerCase();
+      return t.includes('<!doctype html') || t.includes('<html');
+    }
+
+    function looksLikeLoginHtml(text) {
+      const t = String(text ?? '').toLowerCase();
+      return looksLikeHtml(t) && (
+        t.includes(LOGIN_HOST) ||
+        t.includes('로그인') ||
+        t.includes('name="password"') ||
+        t.includes('name="passwd"') ||
+        t.includes('name="user_id"') ||
+        t.includes('id="login"')
+      );
+    }
+
+    function looksLikeAuthPayload(json) {
+      if (!json || typeof json !== 'object') return false;
+      try {
+        const t = JSON.stringify(json).toLowerCase();
+        return (
+          t.includes(LOGIN_HOST) ||
+          t.includes('unauthorized') ||
+          t.includes('forbidden') ||
+          t.includes('session expired') ||
+          t.includes('login required') ||
+          t.includes('need login') ||
+          t.includes('로그인')
+        );
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function validatePayloadOrThrow(json, validate) {
+      if (!validate || validate(json)) return;
+      if (looksLikeAuthPayload(json)) {
+        throw createTaggedError('auth', 'Authentication required');
+      }
+      throw createTaggedError('unexpected', 'Unexpected JSON response');
+    }
+
+    function isLoginRequiredActive() {
+      return GM_getValue(K_LOGIN_REQUIRED_ACTIVE, false) === true;
+    }
+
+    function setLoginRequiredActive(active) {
+      GM_setValue(K_LOGIN_REQUIRED_ACTIVE, Boolean(active));
+    }
+
+    function notifyLoginRequired() {
+      if (isLoginRequiredActive()) return;
+      if (!tryBecomeLeader()) return;
+      setLoginRequiredActive(true);
+      showNotification('Hiworks 로그인이 필요해요', '세션이 만료된 것 같아요. 다시 로그인해 주세요.');
+    }
+
+    function clearLoginRequired() {
+      if (!isLoginRequiredActive()) return;
+      setLoginRequiredActive(false);
     }
   
     function parseAllUnreadFromStatus(json) {
@@ -157,7 +248,7 @@
       return items;
     }
   
-    function fetchJson(url) {
+    function fetchJson(url, validate) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
                 method: 'GET',
@@ -172,17 +263,35 @@
                     'x-skip-session-refresh': 'true',
                 },
                 onload: (res) => {
+                    const finalUrl = res.finalUrl || res.responseURL || '';
+                    const text = (typeof res.responseText === 'string') ? res.responseText : '';
+                    if (res.status === 401 || res.status === 403 || looksLikeLoginUrl(finalUrl) || looksLikeLoginHtml(text)) {
+                        return reject(createTaggedError('auth', 'Authentication required'));
+                    }
                     const ok = res.status >= 200 && res.status < 300;
-                    if (!ok) return reject(new Error(`HTTP ${res.status}`));
+                    if (!ok) return reject(createTaggedError('http', `HTTP ${res.status}`));
                     // responseType:'json'이면 res.response에 JSON이 들어옴
-                    if (res.response) return resolve(res.response);
+                    if (res.response != null) {
+                        try {
+                            validatePayloadOrThrow(res.response, validate);
+                            return resolve(res.response);
+                        } catch (e) {
+                            return reject(e);
+                        }
+                    }
   
                     // 혹시 json 파싱이 안 됐을 때 fallback
-                    try { resolve(JSON.parse(res.responseText)); }
-                    catch (e) { reject(e); }
+                    try {
+                        const parsed = JSON.parse(text);
+                        validatePayloadOrThrow(parsed, validate);
+                        resolve(parsed);
+                    }
+                    catch (e) {
+                        reject(e?.kind ? e : createTaggedError('parse', 'Invalid JSON response'));
+                    }
                 },
-                onerror: () => reject(new Error('GM_xmlhttpRequest failed')),
-                ontimeout: () => reject(new Error('GM_xmlhttpRequest timeout')),
+                onerror: () => reject(createTaggedError('network', 'GM_xmlhttpRequest failed')),
+                ontimeout: () => reject(createTaggedError('timeout', 'GM_xmlhttpRequest timeout')),
             });
         });
     }
@@ -191,13 +300,20 @@
     async function syncBaselineOnce() {
       // First run: fetch latest mails and mark them seen so we don't notify a burst
       try {
-        const j = await fetchJson(MAILS_URL);
+        const j = await fetchJson(MAILS_URL, hasDataArray);
+        clearLoginRequired();
         const items = extractNewMailsFromList(j);
         markSeen(items.map(x => x.no));
         initDone = true;
+        return true;
       } catch (e) {
+        if (isAuthError(e)) {
+          notifyLoginRequired();
+          return false;
+        }
         // If baseline fails, still mark initDone so we don't block forever.
         initDone = true;
+        return true;
       }
     }
   
@@ -206,7 +322,8 @@
       if (fetching) return;
       fetching = true;
       try {
-        const listJson = await fetchJson(MAILS_URL);
+        const listJson = await fetchJson(MAILS_URL, hasDataArray);
+        clearLoginRequired();
         const items = extractNewMailsFromList(listJson);
   
         // Determine genuinely new mail nos
@@ -222,13 +339,23 @@
           }
         }
       } catch (e) {
-        // ignore silently
+        if (isAuthError(e)) {
+          notifyLoginRequired();
+        }
       } finally {
         fetching = false;
       }
     }
   
     function handleStatusJson(statusJson) {
+      if (!hasDataArray(statusJson)) {
+        if (looksLikeAuthPayload(statusJson)) {
+          notifyLoginRequired();
+        }
+        return;
+      }
+
+      clearLoginRequired();
       lastStatusSeenAt = Date.now();
   
       const unread = parseAllUnreadFromStatus(statusJson);
@@ -247,7 +374,9 @@
   
         // If baseline not done, do it first (so we don't notify old stuff)
         if (!initDone) {
-          syncBaselineOnce().then(() => handleNewMailFlow());
+          syncBaselineOnce().then((ready) => {
+            if (ready) handleNewMailFlow();
+          });
         } else {
           handleNewMailFlow();
         }
@@ -297,11 +426,30 @@
   
       // status
       if (url.includes(STATUS_API_MATCH) && url.includes('with=managed')) {
+        if (looksLikeLoginHtml(text)) {
+          notifyLoginRequired();
+          return;
+        }
         try {
           const j = JSON.parse(text);
           handleStatusJson(j);
         } catch (_) {}
         return;
+      }
+
+      if (url.includes(MAILS_API_MATCH)) {
+        if (looksLikeLoginHtml(text)) {
+          notifyLoginRequired();
+          return;
+        }
+        try {
+          const j = JSON.parse(text);
+          if (hasDataArray(j)) {
+            clearLoginRequired();
+          } else if (looksLikeAuthPayload(j)) {
+            notifyLoginRequired();
+          }
+        } catch (_) {}
       }
   
       // mails(all) - optional: could be used, but we primarily call ourselves
@@ -332,10 +480,9 @@
       const res = await origFetch(input, init);
       try {
         const url = (typeof input === 'string') ? input : (input?.url ?? '');
-        // Clone so we don't consume body
-        const clone = res.clone();
-        const ct = clone.headers.get('content-type') || '';
-        if (ct.includes('application/json')) {
+        if (url.includes(STATUS_API_MATCH) || url.includes(MAILS_API_MATCH)) {
+          // Clone so we don't consume body
+          const clone = res.clone();
           const text = await clone.text();
           tryHandleResponse(url, text);
         }
@@ -351,27 +498,48 @@
       if (now - lastStatusSeenAt < FALLBACK_NO_STATUS_MS) return;
   
       try {
-        const j = await fetchJson(STATUS_URL);
+        const j = await fetchJson(STATUS_URL, hasDataArray);
+        clearLoginRequired();
         handleStatusJson(j);
       } catch (e) {
-        // ignore
+        if (isAuthError(e)) {
+          notifyLoginRequired();
+        }
       }
     }
   
     /********************
      * Boot
      ********************/
-    // baseline once so we don't notify old emails immediately
-    syncBaselineOnce();
-  
-    // insurance timer
-    setInterval(pollStatusOnceIfNeeded, FALLBACK_TICK_MS);
-
     // 하트비트 갱신
     setInterval(() => {
       tryBecomeLeader();
     }, LEADER_TTL_MS / 2);
+
+    if (IS_LOGIN_HOST) {
+      notifyLoginRequired();
+
+      const retryId = setInterval(() => {
+        if (isLoginRequiredActive()) {
+          clearInterval(retryId);
+          return;
+        }
+        notifyLoginRequired();
+      }, LEADER_TTL_MS / 2);
+
+      return;
+    }
+
+    // baseline once so we don't notify old emails immediately
+    const baselinePromise = syncBaselineOnce();
+  
+    // insurance timer
+    setInterval(pollStatusOnceIfNeeded, FALLBACK_TICK_MS);
   
     // optional: a small startup ping
-    notify('Hiworks 알림 감시 시작', '새 메일(안읽음)을 메일별 개별 알림으로 알려요.');
+    baselinePromise.finally(() => {
+      if (!isLoginRequiredActive()) {
+        notify('Hiworks 알림 감시 시작', '새 메일(안읽음)을 메일별 개별 알림으로 알려요.');
+      }
+    });
   })();
