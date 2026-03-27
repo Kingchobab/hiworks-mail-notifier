@@ -43,7 +43,7 @@ Hiworks 웹메일에서 **새 메일이 도착했을 때만**
     2. 확장 프로그램 설정  > Tampermonkey > 사용자 스크립트 허용
     3. Hiworks(mails.office.hiworks.com) 사이트 권한 > 알림 허용
     4. Mac 설정 > 알림 > Chrome 허용
-2. 아래 URL을 열어 스크립트 설치  
+2. 아래 URL을 **열어** 스크립트 설치  
    [https://raw.githubusercontent.com/Kingchobab/hiworks-mail-notifier/master/hiworks-mail-notifier.user.js](https://raw.githubusercontent.com/Kingchobab/hiworks-mail-notifier/master/hiworks-mail-notifier.user.js)
 
 ---
@@ -61,4 +61,5 @@ Hiworks 웹메일에서 **새 메일이 도착했을 때만**
 - 초기 시작 알림 10초 뒤 사라지도록
 - 알림 목록 fetch 시 여러개의 메일이 와있는 경우 그 중 가장 최신 것 하나만 이동이 가능한데, 
   메일 별로 개별 알림을 띄우도록
-
+- 재부팅, 크롬 재기동 등으로 로그인이 풀려서 https://login.office.hiworks.com로 이동하면
+  알림 띄우기
