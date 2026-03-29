@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Hiworks Mail Notifier (Alpha)
+// @name         Hiworks Mail Notifier
 // @namespace    https://github.com/Kingchobab/hiworks-mail-notifier
-// @version      0.4.0
+// @version      1.0.0
 // @description  Notify only newly arrived Hiworks mails and open them directly on click.
 // @author       Kingchobab
 // @match        https://mails.office.hiworks.com/*
@@ -531,15 +531,9 @@
     }
 
     // baseline once so we don't notify old emails immediately
-    const baselinePromise = syncBaselineOnce();
+    syncBaselineOnce();
   
     // insurance timer
     setInterval(pollStatusOnceIfNeeded, FALLBACK_TICK_MS);
   
-    // optional: a small startup ping
-    baselinePromise.finally(() => {
-      if (!isLoginRequiredActive()) {
-        notify('Hiworks 알림 감시 시작', '새 메일(안읽음)을 메일별 개별 알림으로 알려요.');
-      }
-    });
   })();
